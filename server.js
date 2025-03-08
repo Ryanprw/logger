@@ -1,12 +1,14 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
-const axios = require("axios"); // You'll need to install this: npm install axios
+const axios = require("axios");
+const useragent = require("useragent"); // Tambahkan ini: npm install useragent
+const mobileDetect = require("mobile-detect"); // Tambahkan ini: npm install mobile-detect
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Ensure log directory exists
+// Pastikan folder log ada
 const logDir = path.join(__dirname, ".logs");
 const logFile = path.join(logDir, "ip_log.txt");
 
@@ -14,7 +16,7 @@ if (!fs.existsSync(logDir)) {
     fs.mkdirSync(logDir, { recursive: true });
 }
 
-// Function to get user IP
+// Fungsi untuk mendapatkan IP pengguna
 function getClientIP(req) {
     let ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "";
     if (ip.includes(",")) ip = ip.split(",")[0].trim();
@@ -22,25 +24,82 @@ function getClientIP(req) {
     return ip || "Unknown";
 }
 
-// Middleware to log IP for each request
+// Middleware untuk mencatat IP setiap request
 app.use((req, res, next) => {
     try {
         const ip = getClientIP(req);
         const userAgent = req.headers["user-agent"] || "Unknown";
-        const log = `IP: ${ip} - User Agent: ${userAgent} - Time: ${new Date().toISOString()}\n`;
+        const log = `IP: ${ip} - User Agent: ${userAgent} - Waktu: ${new Date().toISOString()}\n`;
 
         fs.appendFileSync(logFile, log);
         console.log(log.trim());
     } catch (error) {
-        console.error("Failed to log:", error);
+        console.error("Gagal mencatat log:", error);
     }
 
     next();
 });
 
-// Main page with hacker-style effects and detailed IP info
+// Halaman utama dengan deteksi IP dan device
 app.get("/", async (req, res) => {
     const ip = getClientIP(req);
+    const userAgentString = req.headers["user-agent"] || "Unknown";
+    
+    // Parse user agent untuk mendapatkan informasi device
+    const agent = useragent.parse(userAgentString);
+    const md = new mobileDetect(userAgentString);
+    
+    // Deteksi device type
+    let deviceType = "Desktop";
+    let deviceBrand = "Unknown";
+    let deviceModel = "Unknown";
+    
+    if (md.mobile()) {
+        deviceType = md.tablet() ? "Tablet" : "Mobile";
+        
+        // Deteksi brand dan model smartphone
+        if (md.is('iPhone')) {
+            deviceBrand = "Apple";
+            deviceModel = "iPhone";
+            // Coba deteksi model iPhone spesifik
+            const iphoneMatch = userAgentString.match(/iPhone(\s+OS\s+(\d+_?)+)/);
+            if (iphoneMatch) {
+                const iosVersion = iphoneMatch[1].replace(/_/g, '.');
+                deviceModel += ` (iOS ${iosVersion})`;
+            }
+        } else if (md.is('Samsung')) {
+            deviceBrand = "Samsung";
+            // Coba deteksi model Samsung
+            const samsungMatch = userAgentString.match(/SM-[A-Z0-9]+/i);
+            if (samsungMatch) {
+                deviceModel = samsungMatch[0];
+            } else {
+                deviceModel = "Galaxy";
+            }
+        } else if (md.is('Xiaomi')) {
+            deviceBrand = "Xiaomi";
+            const xiaomiMatch = userAgentString.match(/Mi[A-Z0-9\s]+/i) || userAgentString.match(/Redmi[A-Z0-9\s]+/i);
+            deviceModel = xiaomiMatch ? xiaomiMatch[0] : "Mi";
+        } else if (userAgentString.includes('OPPO') || userAgentString.includes('oppo')) {
+            deviceBrand = "OPPO";
+            const oppoMatch = userAgentString.match(/OPPO\s[A-Z0-9]+/i) || userAgentString.match(/CPH[0-9]+/i);
+            deviceModel = oppoMatch ? oppoMatch[0] : "Phone";
+        } else if (userAgentString.includes('vivo') || userAgentString.includes('Vivo')) {
+            deviceBrand = "Vivo";
+            const vivoMatch = userAgentString.match(/vivo\s[A-Z0-9]+/i);
+            deviceModel = vivoMatch ? vivoMatch[0] : "Phone";
+        } else if (userAgentString.includes('Huawei') || userAgentString.includes('HUAWEI')) {
+            deviceBrand = "Huawei";
+            const huaweiMatch = userAgentString.match(/HUAWEI\s[A-Z0-9]+/i);
+            deviceModel = huaweiMatch ? huaweiMatch[0] : "Phone";
+        } else if (md.is('Android')) {
+            deviceBrand = "Android";
+            const androidMatch = userAgentString.match(/Android\s[0-9\.]+/i);
+            deviceModel = androidMatch ? androidMatch[0] : "Phone";
+        }
+    }
+    
+    // Informasi IP dari API
     let ipInfo = {
         query: ip,
         country: "Loading...",
@@ -58,15 +117,16 @@ app.get("/", async (req, res) => {
     };
 
     try {
-        // Get IP details from ip-api.com
-        const response = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,regionName,city,lat,lon,timezone,isp,as,mobile,proxy,hosting,query,zip`);
+        // Dapatkan detail IP dari ip-api.com
+        const response = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,countryCode,region,regionName,city,district,zip,lat,lon,timezone,offset,currency,isp,org,as,asname,reverse,mobile,proxy,hosting,query`);
         if (response.data && response.data.status === "success") {
             ipInfo = response.data;
         }
     } catch (error) {
-        console.error("Failed to fetch IP info:", error);
+        console.error("Gagal mengambil informasi IP:", error);
     }
 
+    // Format waktu lokal berdasarkan timezone
     const currentTime = new Date().toLocaleString("en-US", { 
         timeZone: ipInfo.timezone || "UTC",
         year: 'numeric',
@@ -78,14 +138,14 @@ app.get("/", async (req, res) => {
         hour12: false
     });
 
-    // Get coordinates formatted nicely
+    // Format koordinat dengan rapi
     const coordinates = ipInfo.lat && ipInfo.lon ? `${ipInfo.lat.toFixed(6)}, ${ipInfo.lon.toFixed(6)}` : "Unknown";
     
     // Format ASN
     const asn = ipInfo.as ? ipInfo.as.split(" ")[0] : "Unknown";
-    const asnOrg = ipInfo.as ? ipInfo.as.substring(ipInfo.as.indexOf(" ") + 1) : "Unknown";
+    const asnOrg = ipInfo.asname || (ipInfo.as ? ipInfo.as.substring(ipInfo.as.indexOf(" ") + 1).trim() : "Unknown");
 
-    // Determine mobile carrier
+    // Tentukan mobile carrier
     let mobileCarrier = "N/A";
     let mcc = "N/A";
     let mnc = "N/A";
@@ -103,6 +163,36 @@ app.get("/", async (req, res) => {
             mobileCarrier = "Indosat Ooredoo";
             mcc = "510";
             mnc = "01";
+        } else if (ipInfo.isp.includes("Tri") || ipInfo.isp.includes("3")) {
+            mobileCarrier = "3 (Tri)";
+            mcc = "510";
+            mnc = "89";
+        } else if (ipInfo.isp.includes("Smartfren")) {
+            mobileCarrier = "Smartfren";
+            mcc = "510";
+            mnc = "09";
+        }
+    }
+
+    // Tentukan jenis koneksi
+    let connectionType = "DSL/Fiber";
+    if (ipInfo.mobile) {
+        connectionType = "Mobile Data";
+    } else if (ipInfo.hosting) {
+        connectionType = "Hosting/Server";
+    }
+    
+    // Coba dapatkan domain dari ISP
+    let domain = "N/A";
+    if (ipInfo.isp) {
+        if (ipInfo.isp.toLowerCase().includes("telkom")) {
+            domain = "telkom.co.id";
+        } else if (ipInfo.isp.toLowerCase().includes("xl")) {
+            domain = "xl.co.id";
+        } else if (ipInfo.isp.toLowerCase().includes("indosat")) {
+            domain = "indosatooredoo.com";
+        } else if (ipInfo.isp.toLowerCase().includes("biznet")) {
+            domain = "biznetnetworks.com";
         }
     }
 
@@ -223,14 +313,53 @@ app.get("/", async (req, res) => {
                 font-size: 12px;
                 color: #8b949e;
             }
+            
+            .device-icon {
+                font-size: 48px;
+                text-align: center;
+                margin-bottom: 20px;
+            }
         </style>
 
         <div class="container">
-            <h1>IP Address Information</h1>
+            <h1>IP & Device Information</h1>
 
             <div class="ip-container">
+                <div class="device-icon">
+                    ${deviceType === "Mobile" ? "📱" : deviceType === "Tablet" ? "📟" : "💻"}
+                </div>
                 <div class="ip-address">${ipInfo.query}</div>
             </div>
+
+            <table class="info-table">
+                <tr>
+                    <th colspan="2">Device Information</th>
+                </tr>
+                <tr>
+                    <td>Device Type</td>
+                    <td>${deviceType}</td>
+                </tr>
+                <tr>
+                    <td>Device Brand</td>
+                    <td>${deviceBrand}</td>
+                </tr>
+                <tr>
+                    <td>Device Model</td>
+                    <td>${deviceModel}</td>
+                </tr>
+                <tr>
+                    <td>Operating System</td>
+                    <td>${agent.os.toString()}</td>
+                </tr>
+                <tr>
+                    <td>Browser</td>
+                    <td>${agent.toAgent()}</td>
+                </tr>
+                <tr>
+                    <td>Browser Version</td>
+                    <td>${agent.toVersion()}</td>
+                </tr>
+            </table>
 
             <table class="info-table">
                 <tr>
@@ -238,7 +367,7 @@ app.get("/", async (req, res) => {
                 </tr>
                 <tr>
                     <td>Country</td>
-                    <td>${ipInfo.country}</td>
+                    <td>${ipInfo.country} ${ipInfo.countryCode ? `(${ipInfo.countryCode})` : ''}</td>
                 </tr>
                 <tr>
                     <td>Region</td>
@@ -247,6 +376,10 @@ app.get("/", async (req, res) => {
                 <tr>
                     <td>City</td>
                     <td>${ipInfo.city}</td>
+                </tr>
+                <tr>
+                    <td>District</td>
+                    <td>${ipInfo.district || "N/A"}</td>
                 </tr>
                 <tr>
                     <td>Coordinates</td>
@@ -258,7 +391,7 @@ app.get("/", async (req, res) => {
                 </tr>
                 <tr>
                     <td>Time Zone</td>
-                    <td>${ipInfo.timezone}</td>
+                    <td>UTC ${ipInfo.offset ? (ipInfo.offset > 0 ? '+' : '') + (ipInfo.offset / 3600) : '+7'}:00</td>
                 </tr>
                 <tr>
                     <td>Local Time</td>
@@ -284,11 +417,15 @@ app.get("/", async (req, res) => {
                 </tr>
                 <tr>
                     <td>Domain</td>
-                    <td>${ipInfo.isp && ipInfo.isp.toLowerCase().includes("telkom") ? "telkom.co.id" : "N/A"}</td>
+                    <td>${domain}</td>
                 </tr>
                 <tr>
                     <td>Connection Type</td>
-                    <td>${ipInfo.mobile ? "Mobile" : "Fixed Line"}</td>
+                    <td>${connectionType}</td>
+                </tr>
+                <tr>
+                    <td>IDD & Area Code</td>
+                    <td>${ipInfo.countryCode === "ID" ? "(62) " + (ipInfo.city === "Jakarta" ? "021" : ipInfo.city === "Surabaya" ? "031" : ipInfo.city === "Bandung" ? "022" : ipInfo.city === "Medan" ? "061" : "0XX") : "N/A"}</td>
                 </tr>
             </table>
 
@@ -326,6 +463,14 @@ app.get("/", async (req, res) => {
                     <td>Usage Type</td>
                     <td>${ipInfo.mobile ? "(MOB) Mobile ISP" : "(ISP) Fixed Line ISP"}</td>
                 </tr>
+                <tr>
+                    <td>Address Type</td>
+                    <td>(U) Unicast</td>
+                </tr>
+                <tr>
+                    <td>Category</td>
+                    <td>(IAB19-18) Internet Technology</td>
+                </tr>
             </table>
 
             <div class="terminal">
@@ -342,9 +487,10 @@ app.get("/", async (req, res) => {
             const messages = [
                 "[ INITIALIZING SYSTEM... ]",
                 "[ GATHERING NETWORK INFORMATION... ]",
+                "[ SCANNING DEVICE DETAILS... ]",
                 "[ ANALYZING IP DATA... ]",
                 "[ GEOLOCATION TRACKING COMPLETE ]",
-                "[ NETWORK DETAILS IDENTIFIED ]",
+                "[ DEVICE FINGERPRINTING COMPLETE ]",
                 "[ SECURITY ANALYSIS FINISHED ]",
                 "[ SYSTEM ANALYSIS COMPLETE ]"
             ];
@@ -356,7 +502,7 @@ app.get("/", async (req, res) => {
                 if (messageIndex < messages.length) {
                     terminalElement.textContent = messages[messageIndex];
                     messageIndex++;
-                    setTimeout(displayNextMessage, 1000);
+                    setTimeout(displayNextMessage, 800);
                 } else {
                     // Add blinking cursor at the end
                     terminalElement.innerHTML += '<span class="blink">_</span>';
@@ -369,7 +515,7 @@ app.get("/", async (req, res) => {
                 setTimeout(displayNextMessage, 500);
             };
 
-            // Log private IP (optional, similar to your original code)
+            // Log private IP (optional)
             async function getLocalIPs() {
                 const ips = new Set();
                 try {
@@ -407,7 +553,7 @@ app.get("/", async (req, res) => {
     `);
 });
 
-// Endpoint for logging private IP to server
+// Endpoint untuk mencatat IP Private ke server
 app.post("/log-ip", express.json(), (req, res) => {
     try {
         const { privateIP } = req.body;
@@ -420,5 +566,5 @@ app.post("/log-ip", express.json(), (req, res) => {
     }
 });
 
-// Start server
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Jalankan server
+app.listen(PORT, () => console.log(`Server berjalan di port ${PORT}`));
