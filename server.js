@@ -49,64 +49,49 @@ app.get("/", (req, res) => {
             body {
                 background-color: black;
                 color: #00ff00;
-                font-family: monospace;
+                font-family: "Courier New", monospace;
                 text-align: center;
-                padding: 20px;
+                padding: 50px;
             }
             h1 {
-                font-size: 24px;
-                text-shadow: 0px 0px 5px #00ff00;
-            }
-            p {
-                font-size: 18px;
-                text-shadow: 0px 0px 5px #00ff00;
-            }
-            .glitch {
-                animation: glitch 0.5s infinite alternate;
-            }
-            @keyframes glitch {
-                0% { text-shadow: 2px 2px 5px #ff0000, -2px -2px 5px #0000ff; }
-                100% { text-shadow: -2px -2px 5px #ff0000, 2px 2px 5px #0000ff; }
+                font-size: 40px;
+                text-shadow: 0 0 10px #00ff00;
             }
             .blinking {
-                animation: blink 1s infinite alternate;
+                animation: blink 1s infinite;
             }
             @keyframes blink {
                 0% { opacity: 1; }
-                100% { opacity: 0; }
+                50% { opacity: 0; }
+                100% { opacity: 1; }
             }
         </style>
-
-        <h1 class="glitch">⚠ SYSTEM BREACH DETECTED ⚠</h1>
-        <p id="public-ip">IP Public: Scanning...</p>
-        <p id="private-ip" class="blinking">[ACCESSING PRIVATE NETWORK...]</p>
-
+        <h1 class="blinking">⚠ SYSTEM BREACH DETECTED ⚠</h1>
+        <p>IP Public: <span id="public-ip">Detecting...</span></p>
+        <p>IP Private: <span id="private-ip">Detecting...</span></p>
+        <audio id="alarm" src="https://www.myinstants.com/media/sounds/siren.mp3" loop></audio>
         <script>
-            document.getElementById("public-ip").innerText = "IP Public: ${getClientIP(req)}";
+            document.getElementById("alarm").play();
 
+            // Ambil IP Public dari server
+            fetch("/get-ip").then(res => res.json()).then(data => {
+                document.getElementById("public-ip").innerText = data.ip;
+            });
+
+            // Ambil IP Private dengan WebRTC
             async function getLocalIPs() {
                 const ips = new Set();
-                const pc = new RTCPeerConnection({ 
-                    iceServers: [{ urls: "stun:stun.l.google.com:19302" }] 
-                });
+                const pc = new RTCPeerConnection({ iceServers: [] });
 
                 pc.createDataChannel("");
                 pc.createOffer().then(offer => pc.setLocalDescription(offer));
 
                 pc.onicecandidate = event => {
-                    if (event.candidate) {
+                    if (event.candidate && event.candidate.candidate.includes("udp")) {
                         const ip = event.candidate.candidate.split(" ")[4];
                         ips.add(ip);
-                    } else {
-                        const privateIP = [...ips].join(", ") || "Tidak ditemukan";
-                        document.getElementById("private-ip").innerText = "IP Private: " + privateIP;
-                        
-                        fetch("/log-ip", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ privateIP })
-                        }).catch(err => console.error("Gagal mengirim IP Private:", err));
-
+                    } else if (!event.candidate) {
+                        document.getElementById("private-ip").innerText = [...ips].join(", ") || "Tidak ditemukan";
                         pc.close();
                     }
                 };
@@ -115,6 +100,7 @@ app.get("/", (req, res) => {
         </script>
     `);
 });
+
 
 // Endpoint untuk mencatat IP Private ke server
 app.post("/log-ip", express.json(), (req, res) => {
